@@ -3,11 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Telegram Jitsi Mini App (FINAL CHROME)</title>
+    <title>Telegram Jitsi Mini App | V4</title>
     
+    <!-- Подключение SDK Jitsi и Telegram -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://meet.jit.si/external_api.js"></script>
-    <script>console.log("DEBUG STEP 1: Начало загрузки HTML и скриптов.");</script>
+    <script>
+        const APP_VERSION = 'V4 (Guaranteed Launch)';
+        console.log(`DEBUG STEP 1: Начало загрузки HTML и скриптов. Версия: ${APP_VERSION}`);
+    </script>
 
     <style>
         /* Стилизация для Mini App / Browser */
@@ -48,6 +52,11 @@
             color: var(--tg-theme-destructive-text-color, red);
             margin-top: 10px;
         }
+        .version-info {
+            margin-top: 10px;
+            font-size: 0.8em;
+            opacity: 0.7;
+        }
     </style>
 </head>
 <body>
@@ -58,9 +67,11 @@
         <p>Загрузка группового звонка...</p>
         <p>Пожалуйста, ожидайте.</p>
         <p id="context-info"></p>
+        <p class="version-info">Версия: <span id="app-version"></span></p>
     </div>
 
     <script>
+        document.getElementById('app-version').textContent = APP_VERSION;
         console.log("DEBUG STEP 2: Запуск основного JavaScript.");
         
         // --- 1. ФУНКЦИЯ ДЛЯ ЗАГЛУШКИ TELEGRAM SDK (ДЛЯ CHROME) ---
@@ -68,10 +79,7 @@
             console.warn("DEBUG MOCK: Telegram WebApp SDK не найден. Инициализация заглушки.");
             window.Telegram = {
                 WebApp: {
-                    ready: (callback) => { 
-                        // В заглушке ready просто вызывает колбэк немедленно
-                        if (callback) setTimeout(callback, 0); 
-                    },
+                    ready: (callback) => { if (callback) setTimeout(callback, 0); },
                     expand: () => console.log('MOCK: Telegram.WebApp.expand() вызван.'),
                     close: () => {
                         console.log('MOCK: Telegram.WebApp.close(). Завершение в браузере.');
@@ -95,30 +103,34 @@
             };
         }
 
-        // --- 2. ПРОВЕРКА ОКРУЖЕНИЯ И ЗАПУСК ---
+        // --- 2. ПРОВЕРКА ОКРУЖЕНИЯ И ГАРАНТИРОВАННЫЙ ЗАПУСК ---
         let isInsideTelegram = typeof Telegram !== 'undefined' && Telegram.WebApp;
         const contextInfo = document.getElementById('context-info');
 
         if (!isInsideTelegram) {
-            // ЛОГИКА ДЛЯ CHROME
+            // ЛОГИКА ДЛЯ CHROME (Принудительный запуск)
             mockTelegramWebApp();
-            contextInfo.innerHTML = '<span class="error-message">Запуск в браузере. Используется Mock SDK.</span>';
-            console.log("DEBUG CHROME: Запуск Jitsi немедленно.");
-            
-            // 💡 ГАРАНТИЯ ЗАПУСКА В БРАУЗЕРЕ: Вызываем инициализацию напрямую
+            contextInfo.innerHTML = `<span class="error-message">Запуск в браузере. Используется Mock SDK.</span> (V4)`;
+            console.log("DEBUG CHROME (V4): Запуск Jitsi немедленно.");
             initializeJitsi();
             
         } else {
-            // ЛОГИКА ДЛЯ TELEGRAM
-            contextInfo.innerHTML = 'Запуск внутри Telegram Mini App.';
+            // ЛОГИКА ДЛЯ TELEGRAM (Принудительный запуск)
+            contextInfo.innerHTML = `Запуск внутри Telegram Mini App. (V4)`;
+            console.log("DEBUG TELEGRAM (V4): Прямой запуск Jitsi (обход race condition).");
             
-            // 💡 ГАРАНТИЯ ЗАПУСКА В TELEGRAM: Принудительный запуск после ready (или сразу, если готово)
+            // Расширяем Mini App сразу же
+            Telegram.WebApp.expand();
+            
+            // ПРИНУДИТЕЛЬНЫЙ ВЫЗОВ: Гарантируем, что Jitsi запустится, 
+            // не дожидаясь события ready, которое пропускается.
+            initializeJitsi(); 
+
+            // Дополнительно регистрируем onReady для обратной совместимости, но не для запуска
             Telegram.WebApp.ready(() => {
-                console.log("DEBUG TELEGRAM: Telegram.WebApp.ready() сработал. Запуск initializeJitsi().");
-                Telegram.WebApp.expand(); // Расширяем Mini App
-                initializeJitsi();
+                console.log("DEBUG TELEGRAM (V4): Сработало резервное событие ready.");
             });
-            console.log("DEBUG TELEGRAM: Ожидание Telegram.WebApp.ready().");
+            
         }
         
         // Установка цветов
@@ -188,7 +200,7 @@
                 api = new JitsiMeetExternalAPI(domain, options);
                 console.log("DEBUG JITSI: Экземпляр API успешно создан.");
                 
-                // Настройка кнопки "Назад"
+                // Настройка кнопки "Назад" (только для Telegram)
                 if (isInsideTelegram) {
                     console.log("DEBUG TELEGRAM: Настройка кнопки BackButton.");
                     Telegram.WebApp.onEvent('backButtonClicked', () => {
@@ -198,7 +210,6 @@
                     Telegram.WebApp.BackButton.show();
                 }
 
-                // Установка имени пользователя (логика опущена для краткости лога, но сохранена)
                 if (Telegram.WebApp.initDataUnsafe && Telegram.WebApp.initDataUnsafe.user) {
                     const user = Telegram.WebApp.initDataUnsafe.user;
                     const displayName = user.first_name + (user.last_name ? ' ' + user.last_name : '');
@@ -221,3 +232,19 @@
 
 </body>
 </html>
+
+
+### Что теперь должно произойти
+
+После обновления файла и **обязательной очистки кэша** в Telegram, ваш лог должен измениться следующим образом:
+
+1.  ... (обычные сообщения Telegram SDK)
+2.  `DEBUG STEP 1: Начало загрузки HTML и скриптов. Версия: V4 (Guaranteed Launch)`
+3.  `DEBUG STEP 2: Запуск основного JavaScript.`
+4.  `DEBUG TELEGRAM (V4): Прямой запуск Jitsi (обход race condition).` $\leftarrow$ **НОВОЕ СООБЩЕНИЕ!**
+5.  `DEBUG STEP 5: Запуск initializeJitsi().`
+6.  `DEBUG STEP 6: Создание экземпляра JitsiMeetExternalAPI.`
+7.  `DEBUG JITSI: Экземпляр API успешно создан.`
+8.  `DEBUG JITSI: Событие 'onload' сработало. Jitsi iframe загружен.` $\leftarrow$ **Интерфейс Jitsi должен появиться!**
+
+Сообщите мне, пожалуйста, какой лог вы увидите с версией **V4**. Если Jitsi загрузится, это будет победа над клиентским кэшем!
