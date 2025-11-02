@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Telegram Jitsi Mini App (FINAL)</title>
+    <title>Telegram Jitsi Mini App (FINAL CHROME)</title>
     
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://meet.jit.si/external_api.js"></script>
@@ -63,15 +63,14 @@
     <script>
         console.log("DEBUG STEP 2: Запуск основного JavaScript.");
         
-        // --- 1. ФУНКЦИЯ ДЛЯ ЗАГЛУШКИ TELEGRAM SDK ---
+        // --- 1. ФУНКЦИЯ ДЛЯ ЗАГЛУШКИ TELEGRAM SDK (ДЛЯ CHROME) ---
         function mockTelegramWebApp() {
             console.warn("DEBUG MOCK: Telegram WebApp SDK не найден. Инициализация заглушки.");
             window.Telegram = {
                 WebApp: {
                     ready: (callback) => { 
-                        console.log('MOCK: Telegram.WebApp.ready() вызван.');
-                        // Имитация немедленной готовности для браузера
-                        if (callback) setTimeout(callback, 50); 
+                        // В заглушке ready просто вызывает колбэк немедленно
+                        if (callback) setTimeout(callback, 0); 
                     },
                     expand: () => console.log('MOCK: Telegram.WebApp.expand() вызван.'),
                     close: () => {
@@ -96,26 +95,33 @@
             };
         }
 
-        // --- 2. ПРОВЕРКА ОКРУЖЕНИЯ И НАСТРОЙКА ---
+        // --- 2. ПРОВЕРКА ОКРУЖЕНИЯ И ЗАПУСК ---
         let isInsideTelegram = typeof Telegram !== 'undefined' && Telegram.WebApp;
         const contextInfo = document.getElementById('context-info');
 
         if (!isInsideTelegram) {
+            // ЛОГИКА ДЛЯ CHROME
             mockTelegramWebApp();
             contextInfo.innerHTML = '<span class="error-message">Запуск в браузере. Используется Mock SDK.</span>';
-            // Запуск Jitsi немедленно для браузера
-            Telegram.WebApp.ready(initializeJitsi); 
+            console.log("DEBUG CHROME: Запуск Jitsi немедленно.");
+            
+            // 💡 ГАРАНТИЯ ЗАПУСКА В БРАУЗЕРЕ: Вызываем инициализацию напрямую
+            initializeJitsi();
+            
         } else {
-            contextInfo.innerHTML = 'Запуск внутри Telegram Mini App. Ожидание готовности.';
-            // Запуск Jitsi после подтверждения готовности Telegram
+            // ЛОГИКА ДЛЯ TELEGRAM
+            contextInfo.innerHTML = 'Запуск внутри Telegram Mini App.';
+            
+            // 💡 ГАРАНТИЯ ЗАПУСКА В TELEGRAM: Принудительный запуск после ready (или сразу, если готово)
             Telegram.WebApp.ready(() => {
-                console.log("DEBUG STEP 5: Telegram.WebApp.ready() сработал. Запуск initializeJitsi().");
+                console.log("DEBUG TELEGRAM: Telegram.WebApp.ready() сработал. Запуск initializeJitsi().");
                 Telegram.WebApp.expand(); // Расширяем Mini App
                 initializeJitsi();
             });
+            console.log("DEBUG TELEGRAM: Ожидание Telegram.WebApp.ready().");
         }
         
-        // Установка цветов (используется mock, если Telegram не найден)
+        // Установка цветов
         document.body.style.backgroundColor = Telegram.WebApp.themeParams.bg_color;
         console.log("DEBUG STEP 3: SDK проверен, цвета установлены.");
 
@@ -127,11 +133,9 @@
 
             if (startParam) {
                 console.log(`DEBUG STEP 4: Найден параметр 'start' в URL: ${startParam}`);
-                // Используем ID чата, переданный ботом
                 return startParam;
             }
             
-            // Запасной вариант для тестирования
             const randomId = Math.random().toString(36).substring(2, 10);
             console.warn(`DEBUG STEP 4: Параметр 'start' не найден. Использование случайного ID: ${randomId}`);
             return `TestRoom_${randomId}`;
@@ -140,7 +144,7 @@
 
         // --- 4. ОСНОВНАЯ ФУНКЦИЯ ИНИЦИАЛИЗАЦИИ JITSI ---
         function initializeJitsi() {
-            console.log("DEBUG STEP 6: Запуск initializeJitsi().");
+            console.log("DEBUG STEP 5: Запуск initializeJitsi().");
             
             const domain = 'meet.jit.si'; 
             let api = null;
@@ -156,7 +160,6 @@
                 
                 onload: () => {
                     console.log("DEBUG JITSI: Событие 'onload' сработало. Jitsi iframe загружен.");
-                    // Скрываем экран загрузки, когда iframe Jitsi загружен
                     const loadingScreen = document.getElementById('loading-screen');
                     if (loadingScreen) loadingScreen.style.display = 'none';
                 },
@@ -181,43 +184,35 @@
             };
             
             try {
-                console.log("DEBUG STEP 7: Создание экземпляра JitsiMeetExternalAPI.");
+                console.log("DEBUG STEP 6: Создание экземпляра JitsiMeetExternalAPI.");
                 api = new JitsiMeetExternalAPI(domain, options);
                 console.log("DEBUG JITSI: Экземпляр API успешно создан.");
                 
-                // Логирование событий для отладки
-                api.addEventListener('videoConferenceJoined', () => {
-                    console.log('DEBUG JITSI EVENT: videoConferenceJoined. Пользователь успешно вошел.');
-                });
-                api.addEventListener('readyToClose', () => {
-                    console.log('DEBUG JITSI EVENT: readyToClose. Jitsi запросил закрытие.');
-                    Telegram.WebApp.close(); 
-                });
-
-                // Установка имени пользователя
-                if (Telegram.WebApp.initDataUnsafe && Telegram.WebApp.initDataUnsafe.user) {
-                    const user = Telegram.WebApp.initDataUnsafe.user;
-                    const displayName = user.first_name + (user.last_name ? ' ' + user.last_name : '');
-                    api.executeCommand('displayName', displayName || 'Гость Telegram');
-                    console.log(`DEBUG JITSI: Установлено имя: ${displayName}`);
-                }
-
-                // Настройка кнопки "Назад" (только в Telegram)
+                // Настройка кнопки "Назад"
                 if (isInsideTelegram) {
                     console.log("DEBUG TELEGRAM: Настройка кнопки BackButton.");
                     Telegram.WebApp.onEvent('backButtonClicked', () => {
-                        console.log('DEBUG TELEGRAM EVENT: backButtonClicked. Закрытие Jitsi и Mini App.');
                         if (api) api.dispose(); 
                         Telegram.WebApp.close();
                     });
                     Telegram.WebApp.BackButton.show();
                 }
 
+                // Установка имени пользователя (логика опущена для краткости лога, но сохранена)
+                if (Telegram.WebApp.initDataUnsafe && Telegram.WebApp.initDataUnsafe.user) {
+                    const user = Telegram.WebApp.initDataUnsafe.user;
+                    const displayName = user.first_name + (user.last_name ? ' ' + user.last_name : '');
+                    api.executeCommand('displayName', displayName || 'Гость Telegram');
+                }
+                
+                api.addEventListener('readyToClose', () => {
+                    console.log('DEBUG JITSI EVENT: readyToClose. Закрытие.');
+                    Telegram.WebApp.close(); 
+                });
+
             } catch (error) {
-                console.error("DEBUG JITSI CRITICAL ERROR: Ошибка при инициализации JitsiMeetExternalAPI:", error);
-                document.getElementById('loading-screen').innerHTML = `
-                    <p class="error-message">КРИТИЧЕСКАЯ ОШИБКА: Видеозвонок не загрузился.</p>
-                    <p>Сообщение об ошибке: ${error.message}</p>`;
+                console.error("DEBUG JITSI CRITICAL ERROR:", error);
+                document.getElementById('loading-screen').innerHTML = `<p class="error-message">КРИТИЧЕСКАЯ ОШИБКА: Видеозвонок не загрузился.</p><p>${error.message}</p>`;
             }
         }
         
