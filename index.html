@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Telegram Jitsi Mini App | V4</title>
+    <title>Telegram Jitsi Mini App | V5 (URL Name)</title>
     
     <!-- Подключение SDK Jitsi и Telegram -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://meet.jit.si/external_api.js"></script>
     <script>
-        const APP_VERSION = 'V4 (Guaranteed Launch)';
+        const APP_VERSION = 'V5 (URL Name)';
         console.log(`DEBUG STEP 1: Начало загрузки HTML и скриптов. Версия: ${APP_VERSION}`);
     </script>
 
@@ -97,7 +97,8 @@
                         text_color: '#000000'
                     },
                     initDataUnsafe: {
-                        user: { first_name: "Тестовый", last_name: "Пользователь" }
+                        // Предоставляем тестовые данные для работы fallback логики
+                        user: { first_name: "Тестовый", last_name: "Пользователь" } 
                     }
                 }
             };
@@ -110,25 +111,24 @@
         if (!isInsideTelegram) {
             // ЛОГИКА ДЛЯ CHROME (Принудительный запуск)
             mockTelegramWebApp();
-            contextInfo.innerHTML = `<span class="error-message">Запуск в браузере. Используется Mock SDK.</span> (V4)`;
-            console.log("DEBUG CHROME (V4): Запуск Jitsi немедленно.");
+            contextInfo.innerHTML = `<span class="error-message">Запуск в браузере. Используется Mock SDK.</span> (${APP_VERSION})`;
+            console.log("DEBUG CHROME: Запуск Jitsi немедленно.");
             initializeJitsi();
             
         } else {
             // ЛОГИКА ДЛЯ TELEGRAM (Принудительный запуск)
-            contextInfo.innerHTML = `Запуск внутри Telegram Mini App. (V4)`;
-            console.log("DEBUG TELEGRAM (V4): Прямой запуск Jitsi (обход race condition).");
+            contextInfo.innerHTML = `Запуск внутри Telegram Mini App. (${APP_VERSION})`;
+            console.log("DEBUG TELEGRAM: Прямой запуск Jitsi (обход race condition).");
             
-            // Расширяем Mini App сразу же
+            // Расширяем Mini App
             Telegram.WebApp.expand();
             
-            // ПРИНУДИТЕЛЬНЫЙ ВЫЗОВ: Гарантируем, что Jitsi запустится, 
-            // не дожидаясь события ready, которое пропускается.
+            // ПРИНУДИТЕЛЬНЫЙ ВЫЗОВ: Гарантируем, что Jitsi запустится сразу.
             initializeJitsi(); 
 
-            // Дополнительно регистрируем onReady для обратной совместимости, но не для запуска
+            // Дополнительно регистрируем onReady для обратной совместимости
             Telegram.WebApp.ready(() => {
-                console.log("DEBUG TELEGRAM (V4): Сработало резервное событие ready.");
+                console.log("DEBUG TELEGRAM: Сработало резервное событие ready.");
             });
             
         }
@@ -141,7 +141,8 @@
         // --- 3. ФУНКЦИЯ ДЛЯ ИЗВЛЕЧЕНИЯ ID КОМНАТЫ ---
         function getRoomId() {
             const urlParams = new URLSearchParams(window.location.search);
-            const startParam = urlParams.get('start');
+            // Параметр start используется для ID комнаты/чата
+            const startParam = urlParams.get('start'); 
 
             if (startParam) {
                 console.log(`DEBUG STEP 4: Найден параметр 'start' в URL: ${startParam}`);
@@ -152,9 +153,36 @@
             console.warn(`DEBUG STEP 4: Параметр 'start' не найден. Использование случайного ID: ${randomId}`);
             return `TestRoom_${randomId}`;
         }
+        
+        // --- 4. НОВАЯ: ФУНКЦИЯ ДЛЯ ИЗВЛЕЧЕНИЯ ИМЕНИ ПОЛЬЗОВАТЕЛЯ ИЗ URL ---
+        function getDisplayName() {
+            const urlParams = new URLSearchParams(window.location.search);
+            // Имя должно передаваться в параметре 'display_name'
+            const nameParam = urlParams.get('display_name');
+
+            if (nameParam) {
+                const decodedName = decodeURIComponent(nameParam);
+                console.log(`DEBUG STEP 4.1: Найден параметр 'display_name' в URL: ${decodedName}`);
+                return decodedName;
+            }
+            
+            // FALLBACK 1: Попытка взять имя из Telegram SDK
+            if (Telegram.WebApp.initDataUnsafe && Telegram.WebApp.initDataUnsafe.user) {
+                const user = Telegram.WebApp.initDataUnsafe.user;
+                const telegramName = user.first_name + (user.last_name ? ' ' + user.last_name : '');
+                if (telegramName) {
+                    console.warn("DEBUG STEP 4.1: Параметр 'display_name' не найден. Использование имени из Telegram SDK.");
+                    return telegramName;
+                }
+            }
+            
+            // FALLBACK 2: Имя по умолчанию
+            console.warn("DEBUG STEP 4.1: Параметр 'display_name' не найден. Использование имени по умолчанию.");
+            return 'Гость Mini App';
+        }
 
 
-        // --- 4. ОСНОВНАЯ ФУНКЦИЯ ИНИЦИАЛИЗАЦИИ JITSI ---
+        // --- 5. ОСНОВНАЯ ФУНКЦИЯ ИНИЦИАЛИЗАЦИИ JITSI ---
         function initializeJitsi() {
             console.log("DEBUG STEP 5: Запуск initializeJitsi().");
             
@@ -200,20 +228,20 @@
                 api = new JitsiMeetExternalAPI(domain, options);
                 console.log("DEBUG JITSI: Экземпляр API успешно создан.");
                 
+                // 💡 УСТАНОВКА ИМЕНИ ПОЛЬЗОВАТЕЛЯ ИЗ URL (НОВАЯ ЛОГИКА)
+                const displayName = getDisplayName();
+                if (api && displayName) {
+                    api.executeCommand('displayName', displayName);
+                    console.log(`DEBUG JITSI: Установлено имя: ${displayName}`);
+                }
+                
                 // Настройка кнопки "Назад" (только для Telegram)
                 if (isInsideTelegram) {
-                    console.log("DEBUG TELEGRAM: Настройка кнопки BackButton.");
                     Telegram.WebApp.onEvent('backButtonClicked', () => {
                         if (api) api.dispose(); 
                         Telegram.WebApp.close();
                     });
                     Telegram.WebApp.BackButton.show();
-                }
-
-                if (Telegram.WebApp.initDataUnsafe && Telegram.WebApp.initDataUnsafe.user) {
-                    const user = Telegram.WebApp.initDataUnsafe.user;
-                    const displayName = user.first_name + (user.last_name ? ' ' + user.last_name : '');
-                    api.executeCommand('displayName', displayName || 'Гость Telegram');
                 }
                 
                 api.addEventListener('readyToClose', () => {
@@ -234,17 +262,11 @@
 </html>
 
 
-### Что теперь должно произойти
+### Как теперь использовать URL для вашего бота:
 
-После обновления файла и **обязательной очистки кэша** в Telegram, ваш лог должен измениться следующим образом:
+Когда ваш бот генерирует ссылку на Mini App, он должен включать два параметра:
 
-1.  ... (обычные сообщения Telegram SDK)
-2.  `DEBUG STEP 1: Начало загрузки HTML и скриптов. Версия: V4 (Guaranteed Launch)`
-3.  `DEBUG STEP 2: Запуск основного JavaScript.`
-4.  `DEBUG TELEGRAM (V4): Прямой запуск Jitsi (обход race condition).` $\leftarrow$ **НОВОЕ СООБЩЕНИЕ!**
-5.  `DEBUG STEP 5: Запуск initializeJitsi().`
-6.  `DEBUG STEP 6: Создание экземпляра JitsiMeetExternalAPI.`
-7.  `DEBUG JITSI: Экземпляр API успешно создан.`
-8.  `DEBUG JITSI: Событие 'onload' сработало. Jitsi iframe загружен.` $\leftarrow$ **Интерфейс Jitsi должен появиться!**
+1.  `start`: ID комнаты (например, ID чата).
+2.  `display_name`: Имя пользователя, закодированное в URL (`url-encoded`).
 
-Сообщите мне, пожалуйста, какой лог вы увидите с версией **V4**. Если Jitsi загрузится, это будет победа над клиентским кэшем!
+**Пример URL:**
