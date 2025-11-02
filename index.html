@@ -10,20 +10,20 @@
     <script src="https://meet.jit.si/external_api.js"></script>
     
     <style>
-        /* Стилизация для Mini App */
+        /* Стилизация для Mini App / Browser */
         body, html {
             margin: 0;
             padding: 0;
             width: 100%;
             height: 100%;
-            overflow: hidden; /* Важно, чтобы избежать двойных скроллов */
-            background-color: var(--tg-theme-bg-color, #ffffff);
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+            overflow: hidden; 
+            /* Используем CSS переменные Telegram для соответствия теме */
+            background-color: var(--tg-theme-bg-color, #f4f4f4); 
+            font-family: sans-serif;
         }
         
         #jitsi-container {
             width: 100%;
-            /* Высота будет установлена через JavaScript, чтобы занять всё доступное пространство */
             height: 100vh; 
         }
 
@@ -33,7 +33,7 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background-color: var(--tg-theme-bg-color, #f4f4f4);
+            background-color: inherit; /* Использует цвет из body */
             display: flex;
             justify-content: center;
             align-items: center;
@@ -41,12 +41,13 @@
             z-index: 1000;
             color: var(--tg-theme-text-color, #000000);
             font-size: 16px;
+            text-align: center;
+            padding: 20px;
         }
 
         .error-message {
             color: var(--tg-theme-destructive-text-color, red);
-            padding: 20px;
-            text-align: center;
+            margin-top: 10px;
         }
     </style>
 </head>
@@ -56,58 +57,147 @@
     
     <div class="loading-screen" id="loading-screen">
         <p>Загрузка группового звонка...</p>
-        <p>Пожалуйста, ожидайте. Расширяем окно.</p>
+        <p>Пожалуйста, ожидайте.</p>
+        <p id="context-info"></p>
     </div>
 
     <script>
-        // Инициализация Mini App
-        if (typeof Telegram !== 'undefined' && Telegram.WebApp) {
-            Telegram.WebApp.ready();
-            // Расширяем Mini App на весь экран, это критично для видеозвонков
-            Telegram.WebApp.expand();
-            // Устанавливаем цвет фона Mini App
-            document.body.style.backgroundColor = Telegram.WebApp.themeParams.bg_color;
-            
-            // Запускаем Jitsi после готовности Telegram SDK
-            initializeJitsi();
-        } else {
-            // Запасной вариант для тестирования вне Telegram (не будет работать полноценно)
-            console.error("Telegram WebApp SDK не найден. Запуск Jitsi в тестовом режиме.");
-            document.getElementById('loading-screen').innerHTML = '<p class="error-message">Приложение запущено вне Telegram. Видеозвонок может работать некорректно.</p>';
-            initializeJitsi();
+        // --- 1. ФУНКЦИЯ ДЛЯ ЗАГЛУШКИ TELEGRAM SDK ---
+        function mockTelegramWebApp() {
+            // Создаем минимальный объект, чтобы избежать ошибок ReferenceError
+            window.Telegram = {
+                WebApp: {
+                    ready: () => console.log('Mock: Telegram.WebApp.ready()'),
+                    expand: () => console.log('Mock: Telegram.WebApp.expand()'),
+                    close: () => {
+                        console.log('Mock: Telegram.WebApp.close(). Завершение в браузере.');
+                        alert('Звонок завершен. В реальном Mini App окно бы закрылось.');
+                        document.getElementById('jitsi-container').innerHTML = '<h2>Звонок завершен.</h2>';
+                    },
+                    onEvent: (event, handler) => console.log(`Mock: Subscribed to ${event}`),
+                    BackButton: {
+                        show: () => console.log('Mock: BackButton.show()'),
+                        hide: () => console.log('Mock: BackButton.hide()'),
+                    },
+                    themeParams: {
+                        bg_color: '#f4f4f4',
+                        text_color: '#000000'
+                    },
+                    // Имитируем initDataUnsafe для Chrome
+                    initDataUnsafe: {
+                        user: { first_name: "Тестовый", last_name: "Пользователь" }
+                    }
+                }
+            };
         }
 
+        // --- 2. ПРОВЕРКА ОКРУЖЕНИЯ И ИНИЦИАЛИЗАЦИЯ ---
+        let isInsideTelegram = typeof Telegram !== 'undefined' && Telegram.WebApp;
+
+        if (!isInsideTelegram) {
+            mockTelegramWebApp();
+            document.getElementById('context-info').innerHTML = '<span class="error-message">Запуск в браузере (Chrome). WebApp SDK отсутствует.</span>';
+        } else {
+            document.getElementById('context-info').innerHTML = 'Запуск внутри Telegram Mini App.';
+        }
+        
+        // Устанавливаем цвета для соответствия Telegram (работает и с заглушкой)
+        document.body.style.backgroundColor = Telegram.WebApp.themeParams.bg_color;
+        
+        // --- 3. ФУНКЦИЯ ДЛЯ ИЗВЛЕЧЕНИЯ ПАРАМЕТРОВ ---
+        function getRoomId() {
+            // Ищем параметр 'start' в URL (для Chrome) или в initData (для Telegram)
+            const urlParams = new URLSearchParams(window.location.search);
+            const startParam = urlParams.get('start');
+
+            // Если есть startParam (например, '?start=12345'), используем его.
+            if (startParam) {
+                return startParam;
+            }
+            
+            // Если нет, генерируем случайный ID для тестовых целей.
+            const randomId = Math.random().toString(36).substring(2, 10);
+            return `TestRoom_${randomId}`;
+        }
+
+
+        // --- 4. ОСНОВНАЯ ФУНКЦИЯ ИНИЦИАЛИЗАЦИИ JITSI ---
+        Telegram.WebApp.ready(() => {
+            // Расширяем Mini App на весь экран (в Chrome это просто логируется)
+            Telegram.WebApp.expand();
+            
+            initializeJitsi();
+        });
+
+
         function initializeJitsi() {
-            // Используем публичный сервер Jitsi
             const domain = 'meet.jit.si'; 
             let api = null;
-
-            // --- Генерация уникального имени комнаты ---
-            // В идеале, используйте уникальный идентификатор, который вы можете получить 
-            // от Telegram (например, ID чата), если Mini App запущено в контексте чата.
-            // Для примера используем случайный, но уникальный ID.
-            const uniqueId = new Date().toISOString() + Math.random().toString(36).substring(2, 9);
-            const roomName = `TelegramMiniApp_GroupCall_${uniqueId}`; 
-
+            
+            // Уникальное имя комнаты
+            const chatIdentifier = getRoomId();
+            const roomName = `TelegramMiniApp_Room_${chatIdentifier}`; 
+            
+            console.log(`Jitsi Room Name: ${roomName}`);
+            
             const options = {
                 roomName: roomName,
                 parentNode: document.querySelector('#jitsi-container'),
-                // Скрываем экран загрузки Telegram
                 onload: () => {
+                    // Скрываем экран загрузки, когда iframe Jitsi загружен
                     document.getElementById('loading-screen').style.display = 'none';
                 },
                 width: '100%',
                 height: '100%',
                 
-                // Переопределение конфигурации Jitsi
                 configOverwrite: {
-                    // Разрешаем только 12 видео, чтобы улучшить производительность на мобильных
                     channelLastN: 12, 
-                    startWithAudioMuted: false, // Начать со включенным микрофоном
-                    prejoinPageEnabled: false, // Пропустить страницу "предварительного присоединения"
+                    prejoinPageEnabled: false, 
                 },
                 
-                // Настройка внешнего вида интерфейса Jitsi
                 interfaceConfigOverwrite: {
-                    // Скрываем некоторые лишние элементы для Mini App
                     SHOW_JITSI_WATERMARK: false,
+                    TOOLBAR_BUTTONS: [
+                        'microphone', 'camera', 'desktop', 'fullscreen',
+                        'fodeviceselection', 'hangup', 'chat', 'tileview', 'settings'
+                    ],
+                    CLOSE_BUTTON_ENABLED: false // Используем кнопку закрытия Telegram
+                }
+            };
+            
+            try {
+                api = new JitsiMeetExternalAPI(domain, options);
+                
+                // Обработка завершения звонка
+                api.addEventListener('readyToClose', () => {
+                    console.log('Jitsi: Звонок завершен. Закрываем Mini App.');
+                    Telegram.WebApp.close(); 
+                });
+
+                // Установить имя пользователя
+                if (Telegram.WebApp.initDataUnsafe && Telegram.WebApp.initDataUnsafe.user) {
+                    const user = Telegram.WebApp.initDataUnsafe.user;
+                    const displayName = user.first_name + (user.last_name ? ' ' + user.last_name : '');
+                    api.executeCommand('displayName', displayName || 'Гость Telegram');
+                }
+
+                // Добавляем обработчик для кнопки "Назад" в Telegram
+                if (isInsideTelegram) {
+                    Telegram.WebApp.onEvent('backButtonClicked', () => {
+                        api.dispose(); // Завершить Jitsi-сессию
+                        Telegram.WebApp.close(); 
+                    });
+                    Telegram.WebApp.BackButton.show();
+                }
+
+            } catch (error) {
+                console.error("Ошибка при инициализации Jitsi:", error);
+                document.getElementById('loading-screen').innerHTML = `
+                    <p class="error-message">Не удалось загрузить видеозвонок.</p>
+                    <p>Проверьте консоль браузера для деталей.</p>`;
+            }
+        }
+    </script>
+
+</body>
+</html>
