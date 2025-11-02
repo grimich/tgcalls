@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telegram Jitsi Mini App</title>
+    
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    
+    <script src="https://meet.jit.si/external_api.js"></script>
+    
+    <style>
+        /* Стилизация для Mini App */
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden; /* Важно, чтобы избежать двойных скроллов */
+            background-color: var(--tg-theme-bg-color, #ffffff);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+        }
+        
+        #jitsi-container {
+            width: 100%;
+            /* Высота будет установлена через JavaScript, чтобы занять всё доступное пространство */
+            height: 100vh; 
+        }
+
+        .loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: var(--tg-theme-bg-color, #f4f4f4);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            z-index: 1000;
+            color: var(--tg-theme-text-color, #000000);
+            font-size: 16px;
+        }
+
+        .error-message {
+            color: var(--tg-theme-destructive-text-color, red);
+            padding: 20px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="jitsi-container"></div>
+    
+    <div class="loading-screen" id="loading-screen">
+        <p>Загрузка группового звонка...</p>
+        <p>Пожалуйста, ожидайте. Расширяем окно.</p>
+    </div>
+
+    <script>
+        // Инициализация Mini App
+        if (typeof Telegram !== 'undefined' && Telegram.WebApp) {
+            Telegram.WebApp.ready();
+            // Расширяем Mini App на весь экран, это критично для видеозвонков
+            Telegram.WebApp.expand();
+            // Устанавливаем цвет фона Mini App
+            document.body.style.backgroundColor = Telegram.WebApp.themeParams.bg_color;
+            
+            // Запускаем Jitsi после готовности Telegram SDK
+            initializeJitsi();
+        } else {
+            // Запасной вариант для тестирования вне Telegram (не будет работать полноценно)
+            console.error("Telegram WebApp SDK не найден. Запуск Jitsi в тестовом режиме.");
+            document.getElementById('loading-screen').innerHTML = '<p class="error-message">Приложение запущено вне Telegram. Видеозвонок может работать некорректно.</p>';
+            initializeJitsi();
+        }
+
+        function initializeJitsi() {
+            // Используем публичный сервер Jitsi
+            const domain = 'meet.jit.si'; 
+            let api = null;
+
+            // --- Генерация уникального имени комнаты ---
+            // В идеале, используйте уникальный идентификатор, который вы можете получить 
+            // от Telegram (например, ID чата), если Mini App запущено в контексте чата.
+            // Для примера используем случайный, но уникальный ID.
+            const uniqueId = new Date().toISOString() + Math.random().toString(36).substring(2, 9);
+            const roomName = `TelegramMiniApp_GroupCall_${uniqueId}`; 
+
+            const options = {
+                roomName: roomName,
+                parentNode: document.querySelector('#jitsi-container'),
+                // Скрываем экран загрузки Telegram
+                onload: () => {
+                    document.getElementById('loading-screen').style.display = 'none';
+                },
+                width: '100%',
+                height: '100%',
+                
+                // Переопределение конфигурации Jitsi
+                configOverwrite: {
+                    // Разрешаем только 12 видео, чтобы улучшить производительность на мобильных
+                    channelLastN: 12, 
+                    startWithAudioMuted: false, // Начать со включенным микрофоном
+                    prejoinPageEnabled: false, // Пропустить страницу "предварительного присоединения"
+                },
+                
+                // Настройка внешнего вида интерфейса Jitsi
+                interfaceConfigOverwrite: {
+                    // Скрываем некоторые лишние элементы для Mini App
+                    SHOW_JITSI_WATERMARK: false,
